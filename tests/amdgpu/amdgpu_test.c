@@ -125,8 +125,10 @@ int main(int argc, char **argv)
 	int i = 0;
 	int suite_id = -1;	/* By default run everything */
 	int test_id  = -1;	/* By default run all tests in the suite */
+	int card_id;
 	CU_pSuite pSuite = NULL;
 	CU_pTest  pTest  = NULL;
+	char card_name[256];
 
 	int aval = drmAvailable();
 
@@ -164,28 +166,35 @@ int main(int argc, char **argv)
 	}
 
 	/* Try to open all possible radeon connections
-	 * Right now: Open only the 0.
+	 * For now just find the first amdgpu graphics card.
 	 */
-	printf("Try to open the card 0..\n");
-	drm_amdgpu[0] = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
+	for(card_id = 0; ; ++card_id) {
+		printf("Try to open the card %d..\n", card_id);
+		sprintf(card_name, "/dev/dri/card%d", card_id);
+		drm_amdgpu[0] = open(card_name, O_RDWR | O_CLOEXEC);
 
-	if (drm_amdgpu[0] < 0) {
-		perror("Cannot open /dev/dri/card0\n");
-		exit(EXIT_FAILURE);
+		if (drm_amdgpu[0] < 0) {
+			perror("Cannot open the card");
+			exit(EXIT_FAILURE);
+		}
+
+		/** Display version of DRM driver */
+		drmVersionPtr retval = drmGetVersion(drm_amdgpu[0]);
+
+		if (retval == NULL) {
+			perror("Could not get information about DRM driver");
+			exit(EXIT_FAILURE);
+		}
+
+		printf("Card %d: DRM Driver: Name: [%s] : Date [%s] : Description [%s]\n",
+		       card_id, retval->name, retval->date, retval->desc);
+		if(strcmp(retval->name, "amdgpu") == 0) {
+			drmFreeVersion(retval);
+			break;
+		}
+		drmFreeVersion(retval);
+		close(drm_amdgpu[0]);
 	}
-
-	/** Display version of DRM driver */
-	drmVersionPtr retval = drmGetVersion(drm_amdgpu[0]);
-
-	if (retval == NULL) {
-		perror("Could not get information about DRM driver");
-		exit(EXIT_FAILURE);
-	}
-
-	printf("DRM Driver: Name: [%s] : Date [%s] : Description [%s]\n",
-	       retval->name, retval->date, retval->desc);
-
-	drmFreeVersion(retval);
 
 	/* Initialize test suites to run */
 

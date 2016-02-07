@@ -40,7 +40,7 @@
 static  amdgpu_device_handle device_handle;
 static  uint32_t  major_version;
 static  uint32_t  minor_version;
-
+static  uint32_t  family_id;
 static void amdgpu_query_info_test(void);
 static void amdgpu_memory_alloc(void);
 static void amdgpu_command_submission_gfx(void);
@@ -82,6 +82,29 @@ CU_TestInfo basic_tests[] = {
 #define GFX_COMPUTE_NOP  0xffff1000
 #define SDMA_NOP  0x0
 
+/* async DMA Packet types. Used by Southern Island */
+#define DMA_PACKET(cmd, b, t, s, n)	((((cmd) & 0xF) << 28) |	\
+					 (((b) & 0x1) << 26) |		\
+					 (((t) & 0x1) << 23) |		\
+					 (((s) & 0x1) << 22) |		\
+					 (((n) & 0xFFFFF) << 0))
+
+#define	DMA_PACKET_WRITE				  0x2
+#define	DMA_PACKET_COPY					  0x3
+#define	DMA_PACKET_INDIRECT_BUFFER			  0x4
+#define	DMA_PACKET_SEMAPHORE				  0x5
+#define	DMA_PACKET_FENCE				  0x6
+#define	DMA_PACKET_TRAP					  0x7
+#define	DMA_PACKET_SRBM_WRITE				  0x9
+#define	DMA_PACKET_CONSTANT_FILL			  0xd
+#define	DMA_PACKET_POLL_REG_MEM				  0xe
+#define	DMA_PACKET_NOP					  0xf
+
+static bool amdgpu_has_old_dma(void)
+{
+	return family_id < AMDGPU_FAMILY_CI;
+}
+
 int suite_basic_tests_init(void)
 {
 	int r;
@@ -89,10 +112,16 @@ int suite_basic_tests_init(void)
 	r = amdgpu_device_initialize(drm_amdgpu[0], &major_version,
 				   &minor_version, &device_handle);
 
-	if (r == 0)
-		return CUE_SUCCESS;
-	else
+	if (r != 0)
 		return CUE_SINIT_FAILED;
+
+	struct amdgpu_gpu_info gpu_info = {0};
+	r = amdgpu_query_gpu_info(device_handle, &gpu_info);
+	if (r != 0)
+		return CUE_SINIT_FAILED;
+
+	family_id = gpu_info.family_id;
+	return CUE_SUCCESS;
 }
 
 int suite_basic_tests_clean(void)
@@ -945,14 +974,23 @@ static void amdgpu_userptr_test(void)
 	handle = buf_handle;
 
 	j = i = 0;
-	pm4[i++] = SDMA_PACKET(SDMA_OPCODE_WRITE,
-			       SDMA_WRITE_SUB_OPCODE_LINEAR, 0);
-	pm4[i++] = 0xffffffff & bo_mc;
-	pm4[i++] = (0xffffffff00000000 & bo_mc) >> 32;
-	pm4[i++] = sdma_write_length;
+	if(amdgpu_has_old_dma()) {
+		pm4[i++] = DMA_PACKET(DMA_PACKET_WRITE, 0, 0, 0, sdma_write_length);
+	    pm4[i++] = 0xffffffff & bo_mc;
+   		pm4[i++] = (0xffffffff00000000 & bo_mc) >> 32;
+		while (j++ < sdma_write_length)
+			pm4[i++] = 0xdeadbeaf;
 
-	while (j++ < sdma_write_length)
-		pm4[i++] = 0xdeadbeaf;
+	} else {
+		pm4[i++] = SDMA_PACKET(SDMA_OPCODE_WRITE,
+					   SDMA_WRITE_SUB_OPCODE_LINEAR, 0);
+		pm4[i++] = 0xffffffff & bo_mc;
+		pm4[i++] = (0xffffffff00000000 & bo_mc) >> 32;
+		pm4[i++] = sdma_write_length;
+
+		while (j++ < sdma_write_length)
+			pm4[i++] = 0xdeadbeaf;
+	}
 
 	amdgpu_sdma_test_exec_cs(context_handle, 0,
 				 i, pm4,
