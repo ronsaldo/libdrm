@@ -795,9 +795,9 @@ static void amdgpu_command_submission_sdma_const_fill(void)
 		i = j = 0;
 		if(amdgpu_has_old_dma()) {
 			pm4[i++] = DMA_PACKET(DMA_PACKET_CONSTANT_FILL, 0, 0, 0, (sdma_write_length / 4));
-			pm4[i++] = 0xffffffff & bo_mc;
+			pm4[i++] = 0xfffffffc & bo_mc;
 			pm4[i++] = 0xdeadbeaf;
-			pm4[i++] = (0xffffffff00000000 & bo_mc) >> 32;
+			pm4[i++] = ((0x000000ff00000000 & bo_mc) >> 32) << 16;
 		} else {
 			pm4[i++] = SDMA_PACKET(SDMA_OPCODE_CONSTANT_FILL, 0,
 					   SDMA_CONSTANT_FILL_EXTRA_SIZE(2));
@@ -901,10 +901,10 @@ static void amdgpu_command_submission_sdma_copy_linear(void)
 			i = j = 0;
 			if(amdgpu_has_old_dma()) {
 				pm4[i++] = DMA_PACKET(DMA_PACKET_COPY, 1, 0, 0, sdma_write_length);
-				pm4[i++] = 0xffffffff & bo1_mc;
-				pm4[i++] = (0xffffffff00000000 & bo1_mc) >> 32;
 				pm4[i++] = 0xffffffff & bo2_mc;
-				pm4[i++] = (0xffffffff00000000 & bo2_mc) >> 32;
+				pm4[i++] = 0xffffffff & bo1_mc;
+				pm4[i++] = (0x000000ff00000000 & bo2_mc) >> 32;
+				pm4[i++] = (0x000000ff00000000 & bo1_mc) >> 32;
 			} else {
 				pm4[i++] = SDMA_PACKET(SDMA_OPCODE_COPY, SDMA_COPY_SUB_OPCODE_LINEAR, 0);
 				pm4[i++] = sdma_write_length;
