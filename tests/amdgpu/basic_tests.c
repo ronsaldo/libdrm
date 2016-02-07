@@ -99,6 +99,7 @@ CU_TestInfo basic_tests[] = {
 #define	DMA_PACKET_CONSTANT_FILL			  0xd
 #define	DMA_PACKET_POLL_REG_MEM				  0xe
 #define	DMA_PACKET_NOP					  0xf
+#define DMA_NOP DMA_PACKET(DMA_PACKET_NOP, 0, 0, 0, 0)
 
 static bool amdgpu_has_old_dma(void)
 {
@@ -402,7 +403,10 @@ static void amdgpu_semaphore_test(void)
 
 	/* 1. same context different engine */
 	ptr = ib_result_cpu[0];
-	ptr[0] = SDMA_NOP;
+	if(amdgpu_has_old_dma())
+		ptr[0] = DMA_NOP;
+	else
+		ptr[0] = SDMA_NOP;
 	ib_info[0].ib_mc_address = ib_result_mc_address[0];
 	ib_info[0].size = 1;
 
@@ -697,13 +701,21 @@ static void amdgpu_command_submission_sdma_write_linear(void)
 
 		/* fullfill PM4: test DMA write-linear */
 		i = j = 0;
-		pm4[i++] = SDMA_PACKET(SDMA_OPCODE_WRITE,
-				SDMA_WRITE_SUB_OPCODE_LINEAR, 0);
-		pm4[i++] = 0xffffffff & bo_mc;
-		pm4[i++] = (0xffffffff00000000 & bo_mc) >> 32;
-		pm4[i++] = sdma_write_length;
-		while(j++ < sdma_write_length)
-			pm4[i++] = 0xdeadbeaf;
+		if(amdgpu_has_old_dma) {
+			pm4[i++] = DMA_PACKET(SDMA_OPCODE_WRITE, 0, 0, 0, sdma_write_length);
+			pm4[i++] = 0xffffffff & bo_mc;
+			pm4[i++] = (0xffffffff00000000 & bo_mc) >> 32;
+			while(j++ < sdma_write_length)
+				pm4[i++] = 0xdeadbeaf;
+		} else {
+			pm4[i++] = SDMA_PACKET(SDMA_OPCODE_WRITE,
+					SDMA_WRITE_SUB_OPCODE_LINEAR, 0);
+			pm4[i++] = 0xffffffff & bo_mc;
+			pm4[i++] = (0xffffffff00000000 & bo_mc) >> 32;
+			pm4[i++] = sdma_write_length;
+			while(j++ < sdma_write_length)
+				pm4[i++] = 0xdeadbeaf;
+		}
 
 		amdgpu_sdma_test_exec_cs(context_handle, 0,
 					i, pm4,
@@ -781,12 +793,19 @@ static void amdgpu_command_submission_sdma_const_fill(void)
 
 		/* fullfill PM4: test DMA const fill */
 		i = j = 0;
-		pm4[i++] = SDMA_PACKET(SDMA_OPCODE_CONSTANT_FILL, 0,
-				   SDMA_CONSTANT_FILL_EXTRA_SIZE(2));
-		pm4[i++] = 0xffffffff & bo_mc;
-		pm4[i++] = (0xffffffff00000000 & bo_mc) >> 32;
-		pm4[i++] = 0xdeadbeaf;
-		pm4[i++] = sdma_write_length;
+		if(amdgpu_has_old_dma()) {
+			pm4[i++] = DMA_PACKET(DMA_PACKET_CONSTANT_FILL, 0, 0, 0, (sdma_write_length / 4));
+			pm4[i++] = 0xffffffff & bo_mc;
+			pm4[i++] = 0xdeadbeaf;
+			pm4[i++] = (0xffffffff00000000 & bo_mc) >> 32;
+		} else {
+			pm4[i++] = SDMA_PACKET(SDMA_OPCODE_CONSTANT_FILL, 0,
+					   SDMA_CONSTANT_FILL_EXTRA_SIZE(2));
+			pm4[i++] = 0xffffffff & bo_mc;
+			pm4[i++] = (0xffffffff00000000 & bo_mc) >> 32;
+			pm4[i++] = 0xdeadbeaf;
+			pm4[i++] = sdma_write_length;
+		}
 
 		amdgpu_sdma_test_exec_cs(context_handle, 0,
 					i, pm4,
@@ -880,14 +899,21 @@ static void amdgpu_command_submission_sdma_copy_linear(void)
 
 			/* fullfill PM4: test DMA copy linear */
 			i = j = 0;
-			pm4[i++] = SDMA_PACKET(SDMA_OPCODE_COPY, SDMA_COPY_SUB_OPCODE_LINEAR, 0);
-			pm4[i++] = sdma_write_length;
-			pm4[i++] = 0;
-			pm4[i++] = 0xffffffff & bo1_mc;
-			pm4[i++] = (0xffffffff00000000 & bo1_mc) >> 32;
-			pm4[i++] = 0xffffffff & bo2_mc;
-			pm4[i++] = (0xffffffff00000000 & bo2_mc) >> 32;
-
+			if(amdgpu_has_old_dma()) {
+				pm4[i++] = DMA_PACKET(DMA_PACKET_COPY, 1, 0, 0, sdma_write_length);
+				pm4[i++] = 0xffffffff & bo1_mc;
+				pm4[i++] = (0xffffffff00000000 & bo1_mc) >> 32;
+				pm4[i++] = 0xffffffff & bo2_mc;
+				pm4[i++] = (0xffffffff00000000 & bo2_mc) >> 32;
+			} else {
+				pm4[i++] = SDMA_PACKET(SDMA_OPCODE_COPY, SDMA_COPY_SUB_OPCODE_LINEAR, 0);
+				pm4[i++] = sdma_write_length;
+				pm4[i++] = 0;
+				pm4[i++] = 0xffffffff & bo1_mc;
+				pm4[i++] = (0xffffffff00000000 & bo1_mc) >> 32;
+				pm4[i++] = 0xffffffff & bo2_mc;
+				pm4[i++] = (0xffffffff00000000 & bo2_mc) >> 32;
+			}
 
 			amdgpu_sdma_test_exec_cs(context_handle, 0,
 						i, pm4,
