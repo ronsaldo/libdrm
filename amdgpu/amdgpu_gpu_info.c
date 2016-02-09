@@ -187,10 +187,12 @@ drm_private int amdgpu_query_gpu_info_init(amdgpu_device_handle dev)
 		if (r)
 			return r;
 
-		r = amdgpu_read_mm_registers(dev, 0xa0d5, 1, instance, 0,
+		if(dev->info.family_id >= AMDGPU_FAMILY_CI) {
+			r = amdgpu_read_mm_registers(dev, 0xa0d5, 1, instance, 0,
 					     &dev->info.pa_sc_raster_cfg1[i]);
-		if (r)
-			return r;
+			if (r)
+				return r;
+		}
 	}
 
 	r = amdgpu_read_mm_registers(dev, 0x2644, 32, 0xffffffff, 0,
